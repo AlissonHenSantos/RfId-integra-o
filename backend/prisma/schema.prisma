@@ -7,8 +7,19 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+model Saca {
+  id        Int         @id @default(autoincrement())
+  tagId     String      @unique
+  status    String      @default("RECEBIDA")
+  peso      Float?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  logs      AccessLog[]
+}
+
 model AccessLog {
   id        Int      @id @default(autoincrement())
   tagId     String
+  saca      Saca?    @relation(fields: [tagId], references: [tagId])
   createdAt DateTime @default(now())
 }

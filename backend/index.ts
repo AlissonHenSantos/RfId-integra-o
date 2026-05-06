@@ -4,11 +4,26 @@ import { PrismaClient } from '@prisma/client';
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
+export enum SacaStatus {
+  RECEBIDA = 'RECEBIDA',
+  ARMAZENADA = 'ARMAZENADA',
+  EM_TORRA = 'EM_TORRA',
+  EXPEDIDA = 'EXPEDIDA'
+}
+
 fastify.post('/rfid/check-in', async (request, reply) => {
   const { tagId } = request.body as { tagId: string };
 
   if (!tagId) {
     return reply.status(400).send({ error: 'Missing tagId' });
+  }
+
+  let saca = await prisma.saca.findUnique({ where: { tagId } });
+
+  if (!saca) {
+    saca = await prisma.saca.create({
+      data: { tagId, status: SacaStatus.RECEBIDA }
+    });
   }
 
   const log = await prisma.accessLog.create({
@@ -17,9 +32,72 @@ fastify.post('/rfid/check-in', async (request, reply) => {
 
   return { 
     status: 'success', 
-    received: tagId,
-    db_id: log.id 
+    message: 'Check-in processado com sucesso',
+    saca,
+    log_id: log.id 
   };
+});
+
+
+fastify.post('/sacas', async (request, reply) => {
+  const { tagId, peso, status } = request.body as { tagId: string, peso?: number, status?: SacaStatus };
+
+  if (!tagId) {
+    return reply.status(400).send({ error: 'O campo tagId é obrigatório' });
+  }
+
+  const sacaStatus = status && Object.values(SacaStatus).includes(status) ? status : SacaStatus.RECEBIDA;
+
+  try {
+    const saca = await prisma.saca.create({
+      data: { tagId, peso, status: sacaStatus }
+    });
+    return reply.status(201).send(saca);
+  } catch (error) {
+    return reply.status(400).send({ error: 'Falha ao cadastrar saca, verifique se a tag já está em uso.' });
+  }
+});
+
+
+fastify.get('/sacas', async (request, reply) => {
+  const sacas = await prisma.saca.findMany();
+  return { sacas };
+});
+
+
+fastify.get('/sacas/:tagId', async (request, reply) => {
+  const { tagId } = request.params as { tagId: string };
+  
+  const saca = await prisma.saca.findUnique({
+    where: { tagId },
+    include: { logs: true } 
+  });
+
+  if (!saca) {
+    return reply.status(404).send({ error: 'Saca não encontrada' });
+  }
+
+  return saca;
+});
+
+
+fastify.patch('/sacas/:tagId/status', async (request, reply) => {
+  const { tagId } = request.params as { tagId: string };
+  const { status } = request.body as { status: SacaStatus };
+
+  if (!Object.values(SacaStatus).includes(status)) {
+    return reply.status(400).send({ error: 'Status inválido' });
+  }
+
+  try {
+    const sacaAtualizada = await prisma.saca.update({
+      where: { tagId },
+      data: { status }
+    });
+    return sacaAtualizada;
+  } catch (error) {
+    return reply.status(404).send({ error: 'Saca não encontrada' });
+  }
 });
 
 const start = async () => {
