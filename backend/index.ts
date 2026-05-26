@@ -1,8 +1,13 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { PrismaClient } from '@prisma/client';
 
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
+
+fastify.register(cors, { 
+  origin: true 
+});
 
 export enum SacaStatus {
   RECEBIDA = 'RECEBIDA',
@@ -38,19 +43,64 @@ fastify.post('/rfid/check-in', async (request, reply) => {
   };
 });
 
-
-fastify.post('/sacas', async (request, reply) => {
-  const { tagId, peso, status } = request.body as { tagId: string, peso?: number, status?: SacaStatus };
+// Endpoint GET facilitado para o ESP8266
+fastify.get('/rfid/check-in/:tagId', async (request, reply) => {
+  const { tagId } = request.params as { tagId: string };
 
   if (!tagId) {
+    return reply.status(400).send({ error: 'Missing tagId' });
+  }
+
+  let saca = await prisma.saca.findUnique({ where: { tagId } });
+
+  if (!saca) {
+    saca = await prisma.saca.create({
+      data: { tagId, status: SacaStatus.RECEBIDA }
+    });
+  }
+
+  const log = await prisma.accessLog.create({
+    data: { tagId }
+  });
+
+  return { 
+    status: 'success', 
+    message: 'Check-in processado com sucesso (via GET)',
+    saca,
+    log_id: log.id 
+  };
+});
+
+
+fastify.post('/sacas', async (request, reply) => {
+  const data = request.body as any;
+
+  if (!data.tagId) {
     return reply.status(400).send({ error: 'O campo tagId é obrigatório' });
   }
 
-  const sacaStatus = status && Object.values(SacaStatus).includes(status) ? status : SacaStatus.RECEBIDA;
+  const sacaStatus = data.status && Object.values(SacaStatus).includes(data.status) ? data.status : SacaStatus.RECEBIDA;
 
   try {
     const saca = await prisma.saca.create({
-      data: { tagId, peso, status: sacaStatus }
+      data: { 
+        // @ts-ignore - Forçando a IDE a ignorar o cache temporário
+        tagId: data.tagId, 
+        peso: data.peso, 
+        status: sacaStatus,
+        codigo: data.codigo,
+        fazenda: data.fazenda,
+        local: data.local,
+        processo: data.processo,
+        variedade: data.variedade,
+        colheita: data.colheita,
+        lav: data.lav,
+        des: data.des,
+        secagem: data.secagem,
+        numero: data.numero,
+        loteGrande: data.loteGrande,
+        miniLotesCount: data.miniLotesCount
+      }
     });
     return reply.status(201).send(saca);
   } catch (error) {
@@ -97,6 +147,27 @@ fastify.patch('/sacas/:tagId/status', async (request, reply) => {
     return sacaAtualizada;
   } catch (error) {
     return reply.status(404).send({ error: 'Saca não encontrada' });
+  }
+});
+
+fastify.delete('/sacas/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  
+  try {
+    const sacaId = parseInt(id, 10);
+    // Delete access logs first due to foreign key constraints if any
+    const saca = await prisma.saca.findUnique({ where: { id: sacaId } });
+    if (saca) {
+      await prisma.accessLog.deleteMany({ where: { tagId: saca.tagId } });
+    }
+
+    await prisma.saca.delete({
+      where: { id: sacaId }
+    });
+    
+    return reply.status(204).send();
+  } catch (error) {
+    return reply.status(400).send({ error: 'Falha ao deletar saca.' });
   }
 });
 

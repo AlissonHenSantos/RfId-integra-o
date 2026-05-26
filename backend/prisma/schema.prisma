@@ -8,13 +8,27 @@ datasource db {
 }
 
 model Saca {
-  id        Int         @id @default(autoincrement())
-  tagId     String      @unique
-  status    String      @default("RECEBIDA")
-  peso      Float?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  logs      AccessLog[]
+  id             Int         @id @default(autoincrement())
+  tagId          String      @unique
+  status         String      @default("RECEBIDA")
+  peso           Float?
+  
+  codigo         String?
+  fazenda        String?
+  local          String?
+  processo       String?
+  variedade      String?
+  colheita       String?
+  lav            Boolean     @default(false)
+  des            Boolean     @default(false)
+  secagem        String?
+  numero         Int?
+  loteGrande     String?
+  miniLotesCount Int         @default(0)
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  logs           AccessLog[]
 }
 
 model AccessLog {
